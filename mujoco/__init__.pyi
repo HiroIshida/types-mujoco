@@ -1831,14 +1831,14 @@ def mj_angmomMat(m: MjModel, d: MjData, mat: np.ndarray, body: int) -> None:
 # mj_name2id
 # int mj_name2id(const mjModel* m, int type, const char* name);
 # Get id of object with the specified mjtObj type and name, returns -1 if id not found.
-def mj_name2id(m: MjModel, type: int, name: str) -> int:
+def mj_name2id(m: MjModel, type: Union[int, mjtObj], name: str) -> int:
     """Get id of object with the specified mjtObj type and name, returns -1 if id not found."""
     ...
 
 # mj_id2name
 # const char* mj_id2name(const mjModel* m, int type, int id);
 # Get name of object with the specified mjtObj type and id, returns NULL if name not found.
-def mj_id2name(m: MjModel, type: int, id: int) -> str:
+def mj_id2name(m: MjModel, type: Union[int, mjtObj], id: int) -> str:
     """Get name of object with the specified mjtObj type and id, returns NULL if name not found."""
     ...
 
