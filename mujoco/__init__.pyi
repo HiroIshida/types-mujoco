@@ -5,6 +5,24 @@ from typing import List, Any
 class MjVisual: ...
 class MjStatistic: ...
 
+class MjWarningStat:
+    lastinfo: int  """info from last warning"""
+    number: int  """how many times was warning raised"""
+
+class MjTimerStat:
+    duration: float  """cumulative duration"""
+    number: int  """how many times was timer called"""
+
+class MjSolverStat:
+    """per-iteration solver statistics"""
+    improvement: float  """cost reduction, scaled by 1/trace(M(qpos0))"""
+    gradient: float  """gradient norm (primal only, scaled)"""
+    lineslope: float  """slope in linesearch"""
+    nactive: int  """number of active constraints"""
+    nchange: int  """number of constraint state changes"""
+    neval: int  """number of cost evaluations in line search"""
+    nupdate: int  """number of Cholesky updates in line search"""
+
 # struct mjOption_ {                // physics options
 class MjOption:
   timestep: float                """timestep"""
@@ -581,269 +599,291 @@ class MjModel:
   # paths
   paths: bytes                """paths to assets, 0-terminated            char* (npaths x 1)"""
 
+class MjContact:
+  """result of collision detection functions"""
+  # contact parameters set by near-phase collision function
+  dist: float                    """distance between nearest points; neg: penetration"""
+  pos: np.ndarray                  """position of contact point: midpoint between geoms float* (3,)"""
+  frame: np.ndarray                """normal is in [0-2], points from geom[0] to geom[1] float* (9,)"""
+
+  # contact parameters set by mj_collideGeoms
+  includemargin: float           """include if dist<includemargin=margin-gap"""
+  friction: np.ndarray             """tangent1, 2, spin, roll1, 2 float* (5,)"""
+  solref]: np.ndarray          """constraint solver reference, normal direction float* (mjNREF,)"""
+  solreffriction: np.ndarray  """constraint solver reference, friction directions float* (mjNREF,)"""
+  solimp: np.ndarray          """constraint solver impedance float* (mjNIMP,)"""
+
+  # internal storage used by solver
+  mu: float                      """friction of regularized cone, set by mj_makeConstraint"""
+  H: np.ndarray                   """cone Hessian, set by mj_updateConstraint float* (36,)"""
+
+  # contact descriptors set by mj_collideXXX
+  dim: int                     """contact space dimensionality: 1, 3, 4 or 6"""
+  geom1: int                   """id of geom 1; deprecated, use geom[0]"""
+  geom2: int                   """id of geom 2; deprecated, use geom[1]"""
+  geom: np.ndarray                 """geom ids; -1 for flex int* (2,)"""
+  flex: np.ndarray                 """flex ids; -1 for geom"""
+  elem: np.ndarray                 """element ids; -1 for geom or flex vertex int* (2,)"""
+  vert: np.ndarray                 """vertex ids;  -1 for geom or flex element int* (2,)"""
+
+  # flag set by mj_setContact or mj_instantiateContact
+  exclude: int                 """0: include, 1: in gap, 2: fused, 3: no dofs"""
+
+  # address computed by mj_instantiateContact"""
+  efc_address: int             """address in efc; -1: not included"""
+};
+# typedef struct mjContact_ mjContact;
+
+
+
 class MjData:
   # constant sizes
-  narena: int            // size of the arena in bytes (inclusive of the stack)
-  nbuffer: int           // size of main buffer in bytes
-  nplugin: int           // number of plugin instances
+  narena: int            """size of the arena in bytes (inclusive of the stack)"""
+  nbuffer: int           """size of main buffer in bytes"""
+  nplugin: int           """number of plugin instances"""
 
-  # stack pointer
-  pstack: int            // first available mjtNum address in stack
-  pbase: int             // value of pstack when mj_markStack was last called
+  # stack pointer"""
+  pstack: int            """first available mjtNum address in stack"""
+  pbase: int             """value of pstack when mj_markStack was last called"""
 
-  # arena pointer
-  parena: int            // first available byte in arena
+  # arena pointer"""
+  parena: int            """first available byte in arena"""
 
-  # memory utilization stats
-  maxuse_stack: int                      // maximum stack allocation in bytes
-  maxuse_threadstack[mjMAXTHREAD]: int   // maximum stack allocation per thread in bytes
-  maxuse_arena: int                      // maximum arena allocation in bytes
-  maxuse_con: int                        // maximum number of contacts
-  maxuse_efc: int                        // maximum number of scalar constraints
+  # memory utilization stats"""
+  maxuse_stack: int                      """maximum stack allocation in bytes"""
+  maxuse_threadstack[mjMAXTHREAD]: int   """maximum stack allocation per thread in bytes"""
+  maxuse_arena: int                      """maximum arena allocation in bytes"""
+  maxuse_con: int                        """maximum number of contacts"""
+  maxuse_efc: int                        """maximum number of scalar constraints"""
 
-"""
-  # diagnostics
-  mjWarningStat warning[mjNWARNING];  // warning statistics
-  mjTimerStat   timer[mjNTIMER];      // timer statistics
+  # diagnostics"""
+  warning: List[MjWarningStat]           """warning statistics"""
+  timer: List[MjTimerStat]               """timer statistics"""
 
   # solver statistics
-  mjSolverStat  solver[mjNISLAND*mjNSOLVER];  // solver statistics per island, per iteration
-  int     solver_nisland;           // number of islands processed by solver
-  int     solver_niter[mjNISLAND];  // number of solver iterations, per island
-  int     solver_nnz[mjNISLAND];    // number of non-zeros in Hessian or efc_AR, per island
-  mjtNum  solver_fwdinv[2];         // forward-inverse comparison: qfrc, efc
+  solver: List[MjSolverStat]  """solver statistics per island, per iteration size=(mjNSOLVER * mjNISLAND,)"""
+  solver_nisland: int           """number of islands processed by solver"""
+  solver_niter: np.ndarray  """number of solver iterations, per island int* (mjNISLAND,)"""
+  solver_nnz: np.ndarray    """number of non-zeros in Hessian or efc_AR, per island int* (mjNISLAND,)"""
+  solver_fwdinv: np.ndarray         """forward-inverse comparison: qfrc, efc int* (2,)"""
 
   # variable sizes
-  int     ne;                // number of equality constraints
-  int     nf;                // number of friction constraints
-  int     nl;                // number of limit constraints
-  int     nefc;              // number of constraints
-  int     nnzJ;              // number of non-zeros in constraint Jacobian
-  int     ncon;              // number of detected contacts
-  int     nisland;           // number of detected constraint islands
+  ne: int                """number of equality constraints"""
+  nf: int                """number of friction constraints"""
+  nl: int                """number of limit constraints"""
+  nefc: int              """number of constraints"""
+  nnzJ: int              """number of non-zeros in constraint Jacobian"""
+  ncon: int              """number of detected contacts"""
+  nisland: int           """number of detected constraint islands"""
 
   # global properties
-  mjtNum  time;              // simulation time
-  mjtNum  energy[2];         // potential, kinetic energy
+  time: float              """simulation time"""
+  energy: np.ndarray         """potential, kinetic energy float* (2,)"""
 
   # buffers
-  void*   buffer;            // main buffer; all pointers point in it                (nbuffer bytes)
-  void*   arena;             // arena+stack buffer                     (nstack*sizeof(mjtNum) bytes)
+  buffer: Any            """main buffer; all pointers point in it                void* (nbuffer bytes)"""
+  arena: List[Any]             """arena+stack buffer                     void* (nstack*sizeof(mjtNum) bytes)"""
 
   # state
-  mjtNum* qpos;              // position                                         (nq x 1)
-  mjtNum* qvel;              // velocity                                         (nv x 1)
-  mjtNum* act;               // actuator activation                              (na x 1)
-  mjtNum* qacc_warmstart;    // acceleration used for warmstart                  (nv x 1)
-  mjtNum* plugin_state;      // plugin state                                     (npluginstate x 1)
+  qpos: np.ndarray              """position                                         float* (nq x 1)"""
+  qvel: np.ndarray              """velocity                                         float* (nv x 1)"""
+  act: np.ndarray               """actuator activation                              float* (na x 1)"""
+  qacc_warmstart: np.ndarray    """acceleration used for warmstart                  float* (nv x 1)"""
+  plugin_state: np.ndarray      """plugin state                                     float* (npluginstate x 1)"""
 
   # control
-  mjtNum* ctrl;              // control                                          (nu x 1)
-  mjtNum* qfrc_applied;      // applied generalized force                        (nv x 1)
-  mjtNum* xfrc_applied;      // applied Cartesian force/torque                   (nbody x 6)
-  mjtByte* eq_active;        // enable/disable constraints                       (neq x 1)
+  ctrl: np.ndarray              """control                                          float* (nu x 1)"""
+  qfrc_applied: np.ndarray      """applied generalized force                        float* (nv x 1)"""
+  xfrc_applied: np.ndarray      """applied Cartesian force/torque                   float* (nbody x 6)"""
+  eq_active: np.ndarray        """enable/disable constraints                       bool* (neq x 1)"""
 
   # mocap data
-  mjtNum* mocap_pos;         // positions of mocap bodies                        (nmocap x 3)
-  mjtNum* mocap_quat;        // orientations of mocap bodies                     (nmocap x 4)
+  mocap_pos: np.ndarray         """positions of mocap bodies                        float* (nmocap x 3)"""
+  mocap_quat: np.ndarray        """orientations of mocap bodies                     float* (nmocap x 4)"""
 
   # dynamics
-  mjtNum* qacc;              // acceleration                                     (nv x 1)
-  mjtNum* act_dot;           // time-derivative of actuator activation           (na x 1)
+  qacc: np.ndarray              """acceleration                                     float* (nv x 1)"""
+  act_dot: np.ndarray           """time-derivative of actuator activation           float* (na x 1)"""
 
   # user data
-  mjtNum* userdata;          // user data, not touched by engine                 (nuserdata x 1)
+  userdata: np.ndarray          """user data, not touched by engine                 float* (nuserdata x 1)"""
 
   # sensors
-  mjtNum* sensordata;        // sensor data array                                (nsensordata x 1)
+  sensordata: np.ndarray        """sensor data array                                float* (nsensordata x 1)"""
 
   # plugins
-  int*       plugin;         // copy of m->plugin, required for deletion         (nplugin x 1)
-  uintptr_t* plugin_data;    // pointer to plugin-managed data structure         (nplugin x 1)
+  plugin: np.ndarray         """copy of m->plugin, required for deletion         int* (nplugin x 1)"""
+  plugin_data: List[Any]    """pointer to plugin-managed data structure         uintptr_t* (nplugin x 1)"""
 
   # computed by mj_fwdPosition/mj_kinematics
-  mjtNum* xpos;              // Cartesian position of body frame                 (nbody x 3)
-  mjtNum* xquat;             // Cartesian orientation of body frame              (nbody x 4)
-  mjtNum* xmat;              // Cartesian orientation of body frame              (nbody x 9)
-  mjtNum* xipos;             // Cartesian position of body com                   (nbody x 3)
-  mjtNum* ximat;             // Cartesian orientation of body inertia            (nbody x 9)
-  mjtNum* xanchor;           // Cartesian position of joint anchor               (njnt x 3)
-  mjtNum* xaxis;             // Cartesian joint axis                             (njnt x 3)
-  mjtNum* geom_xpos;         // Cartesian geom position                          (ngeom x 3)
-  mjtNum* geom_xmat;         // Cartesian geom orientation                       (ngeom x 9)
-  mjtNum* site_xpos;         // Cartesian site position                          (nsite x 3)
-  mjtNum* site_xmat;         // Cartesian site orientation                       (nsite x 9)
-  mjtNum* cam_xpos;          // Cartesian camera position                        (ncam x 3)
-  mjtNum* cam_xmat;          // Cartesian camera orientation                     (ncam x 9)
-  mjtNum* light_xpos;        // Cartesian light position                         (nlight x 3)
-  mjtNum* light_xdir;        // Cartesian light direction                        (nlight x 3)
+  xpos: np.ndarray              """cartesian position of body frame                 float* (nbody x 3)"""
+  xquat: np.ndarray             """cartesian orientation of body frame              float* (nbody x 4)"""
+  xmat: np.ndarray              """cartesian orientation of body frame              float* (nbody x 9)"""
+  xipos: np.ndarray             """cartesian position of body com                   float* (nbody x 3)"""
+  ximat: np.ndarray             """cartesian orientation of body inertia            float* (nbody x 9)"""
+  xanchor: np.ndarray           """cartesian position of joint anchor               float* (njnt x 3)"""
+  xaxis: np.ndarray             """cartesian joint axis                             float* (njnt x 3)"""
+  geom_xpos: np.ndarray         """cartesian geom position                          float* (ngeom x 3)"""
+  geom_xmat: np.ndarray         """cartesian geom orientation                       float* (ngeom x 9)"""
+  site_xpos: np.ndarray         """cartesian site position                          float* (nsite x 3)"""
+  site_xmat: np.ndarray         """cartesian site orientation                       float* (nsite x 9)"""
+  cam_xpos: np.ndarray          """Cartesian camera position                        float* (ncam x 3)"""
+  cam_xmat: np.ndarray          """Cartesian camera orientation                     float* (ncam x 9)"""
+  light_xpos: np.ndarray        """Cartesian light position                         float* (nlight x 3)"""
+  light_xdir: np.ndarray        """Cartesian light direction                        float* (nlight x 3)"""
 
   # computed by mj_fwdPosition/mj_comPos
-  mjtNum* subtree_com;       // center of mass of each subtree                   (nbody x 3)
-  mjtNum* cdof;              // com-based motion axis of each dof (rot:lin)      (nv x 6)
-  mjtNum* cinert;            // com-based body inertia and mass                  (nbody x 10)
+  subtree_com: np.ndarray       """center of mass of each subtree                   float* (nbody x 3)"""
+  cdof: np.ndarray              """com-based motion axis of each dof (rot:lin)      float* (nv x 6)"""
+  cinert: np.ndarray            """com-based body inertia and mass                  float* (nbody x 10)"""
 
   # computed by mj_fwdPosition/mj_flex
-  mjtNum* flexvert_xpos;     // Cartesian flex vertex positions                  (nflexvert x 3)
-  mjtNum* flexelem_aabb;     // flex element bounding boxes (center, size)       (nflexelem x 6)
-  int*    flexedge_J_rownnz; // number of non-zeros in Jacobian row              (nflexedge x 1)
-  int*    flexedge_J_rowadr; // row start address in colind array                (nflexedge x 1)
-  int*    flexedge_J_colind; // column indices in sparse Jacobian                (nflexedge x nv)
-  mjtNum* flexedge_J;        // flex edge Jacobian                               (nflexedge x nv)
-  mjtNum* flexedge_length;   // flex edge lengths                                (nflexedge x 1)
+  flexvert_xpos: np.ndarray     """Cartesian flex vertex positions                  float* (nflexvert x 3)"""
+  flexelem_aabb: np.ndarray     """flex element bounding boxes (center, size)       float* (nflexelem x 6)"""
+  flexedge_J_rownnz: np.ndarray """number of non-zeros in Jacobian row              int* (nflexedge x 1)"""
+  flexedge_J_rowadr: np.ndarray """row start address in colind array                int* (nflexedge x 1)"""
+  flexedge_J_colind: np.ndarray """column indices in sparse Jacobian                int* (nflexedge x nv)"""
+  flexedge_J: np.ndarray        """flex edge Jacobian                               float* (nflexedge x nv)"""
+  flexedge_length: np.ndarray   """flex edge lengths                                float* (nflexedge x 1)"""
 
   # computed by mj_fwdPosition/mj_tendon
-  int*    ten_wrapadr;       // start address of tendon's path                   (ntendon x 1)
-  int*    ten_wrapnum;       // number of wrap points in path                    (ntendon x 1)
-  int*    ten_J_rownnz;      // number of non-zeros in Jacobian row              (ntendon x 1)
-  int*    ten_J_rowadr;      // row start address in colind array                (ntendon x 1)
-  int*    ten_J_colind;      // column indices in sparse Jacobian                (ntendon x nv)
-  mjtNum* ten_J;             // tendon Jacobian                                  (ntendon x nv)
-  mjtNum* ten_length;        // tendon lengths                                   (ntendon x 1)
-  int*    wrap_obj;          // geom id; -1: site; -2: pulley                    (nwrap*2 x 1)
-  mjtNum* wrap_xpos;         // Cartesian 3D points in all path                  (nwrap*2 x 3)
+  ten_wrapadr: np.ndarray       """start address of tendon's path                   int* (ntendon x 1)"""
+  ten_wrapnum: np.ndarray       """number of wrap points in path                    int* (ntendon x 1)"""
+  ten_J_rownnz: np.ndarray      """number of non-zeros in Jacobian row              int* (ntendon x 1)"""
+  ten_J_rowadr: np.ndarray      """row start address in colind array                int* (ntendon x 1)"""
+  ten_J_colind: np.ndarray      """column indices in sparse Jacobian                int* (ntendon x nv)"""
+  ten_J: np.ndarray             """tendon Jacobian                                  float* (ntendon x nv)"""
+  ten_length: np.ndarray        """tendon lengths                                   float* (ntendon x 1)"""
+  wrap_obj: np.ndarray          """geom id; -1: site; -2: pulley                    int* (nwrap*2 x 1)"""
+  wrap_xpos: np.ndarray         """Cartesian 3D points in all path                  float* (nwrap*2 x 3)"""
 
   # computed by mj_fwdPosition/mj_transmission
-  mjtNum* actuator_length;   // actuator lengths                                 (nu x 1)
-  mjtNum* actuator_moment;   // actuator moments                                 (nu x nv)
+  actuator_length: np.ndarray   """actuator lengths                                 float* (nu x 1)"""
+  actuator_moment: np.ndarray   """actuator moments                                 float* (nu x nv)"""
 
-   computed by mj_fwdPosition/mj_crb
-  mjtNum* crb;               // com-based composite inertia and mass             (nbody x 10)
-  mjtNum* qM;                // total inertia (sparse)                           (nM x 1)
+  # computed by mj_fwdPosition/mj_crb
+  crb: np.ndarray               """com-based composite inertia and mass             float* (nbody x 10)"""
+  qM: np.ndarray                """total inertia (sparse)                           float* (nM x 1)"""
 
-  // computed by mj_fwdPosition/mj_factorM
-  mjtNum* qLD;               // L'*D*L factorization of M (sparse)               (nM x 1)
-  mjtNum* qLDiagInv;         // 1/diag(D)                                        (nv x 1)
-  mjtNum* qLDiagSqrtInv;     // 1/sqrt(diag(D))                                  (nv x 1)
+  # computed by mj_fwdPosition/mj_factorM
+  qLD: np.ndarray               """L'*D*L factorization of M (sparse)               float* (nM x 1)"""
+  qLDiagInv: np.ndarray         """1/diag(D)                                        float* (nv x 1)"""
+  qLDiagSqrtInv: np.ndarray     """1/sqrt(diag(D))                                  float* (nv x 1)"""
 
-  // computed by mj_collisionTree
-  mjtNum*  bvh_aabb_dyn;     // global bounding box (center, size)               (nbvhdynamic x 6)
-  mjtByte* bvh_active;       // volume has been added to collisions              (nbvh x 1)
+  # computed by mj_collisionTree
+  bvh_aabb_dyn: np.ndarray     """global bounding box (center, size)               float* (nbvhdynamic x 6)"""
+  bvh_active: np.ndarray       """volume has been added to collisions              bool* (nbvh x 1)"""
 
-  //-------------------- POSITION, VELOCITY dependent
+  # computed by mj_fwdVelocity
+  flexedge_velocity: np.ndarray """flex edge velocities                             float* (nflexedge x 1)"""
+  ten_velocity: np.ndarray      """tendon velocities                                float* (ntendon x 1)"""
+  actuator_velocity: np.ndarray """actuator velocities                              float* (nu x 1)"""
 
-  // computed by mj_fwdVelocity
-  mjtNum* flexedge_velocity; // flex edge velocities                             (nflexedge x 1)
-  mjtNum* ten_velocity;      // tendon velocities                                (ntendon x 1)
-  mjtNum* actuator_velocity; // actuator velocities                              (nu x 1)
+  # computed by mj_fwdVelocity/mj_comVel
+  cvel: np.ndarray              """com-based velocity (rot:lin)                     float* (nbody x 6)"""
+  cdof_dot: np.ndarray          """time-derivative of cdof (rot:lin)                float* (nv x 6)"""
 
-  // computed by mj_fwdVelocity/mj_comVel
-  mjtNum* cvel;              // com-based velocity (rot:lin)                     (nbody x 6)
-  mjtNum* cdof_dot;          // time-derivative of cdof (rot:lin)                (nv x 6)
+  # computed by mj_fwdVelocity/mj_rne (without acceleration)"""
+  qfrc_bias: np.ndarray         """C(qpos,qvel)                                     float* (nv x 1)"""
 
-  // computed by mj_fwdVelocity/mj_rne (without acceleration)
-  mjtNum* qfrc_bias;         // C(qpos,qvel)                                     (nv x 1)
+  # computed by mj_fwdVelocity/mj_passive
+  qfrc_spring: np.ndarray       """passive spring force                             float* (nv x 1)"""
+  qfrc_damper: np.ndarray       """passive damper force                             float* (nv x 1)"""
+  qfrc_gravcomp: np.ndarray     """passive gravity compensation force               float* (nv x 1)"""
+  qfrc_fluid: np.ndarray        """passive fluid force                              float* (nv x 1)"""
+  qfrc_passive: np.ndarray      """total passive force                              float* (nv x 1)"""
 
-  // computed by mj_fwdVelocity/mj_passive
-  mjtNum* qfrc_spring;       // passive spring force                             (nv x 1)
-  mjtNum* qfrc_damper;       // passive damper force                             (nv x 1)
-  mjtNum* qfrc_gravcomp;     // passive gravity compensation force               (nv x 1)
-  mjtNum* qfrc_fluid;        // passive fluid force                              (nv x 1)
-  mjtNum* qfrc_passive;      // total passive force                              (nv x 1)
+  # computed by mj_sensorVel/mj_subtreeVel if needed
+  subtree_linvel: np.ndarray    """linear velocity of subtree com                   float* (nbody x 3)"""
+  subtree_angmom: np.ndarray    """angular momentum about subtree com               float* (nbody x 3)"""
 
-  // computed by mj_sensorVel/mj_subtreeVel if needed
-  mjtNum* subtree_linvel;    // linear velocity of subtree com                   (nbody x 3)
-  mjtNum* subtree_angmom;    // angular momentum about subtree com               (nbody x 3)
+  # computed by mj_Euler or mj_implicit
+  qH: np.ndarray                """L'*D*L factorization of modified M               float* (nM x 1)"""
+  qHDiagInv: np.ndarray         """1/diag(D) of modified M                          float* (nv x 1)"""
 
-  // computed by mj_Euler or mj_implicit
-  mjtNum* qH;                // L'*D*L factorization of modified M               (nM x 1)
-  mjtNum* qHDiagInv;         // 1/diag(D) of modified M                          (nv x 1)
+  # computed by mj_resetData
+  D_rownnz: np.ndarray          """non-zeros in each row                            int* (nv x 1)"""
+  D_rowadr: np.ndarray          """address of each row in D_colind                  int* (nv x 1)"""
+  D_colind: np.ndarray          """column indices of non-zeros                      int* (nD x 1)"""
+  B_rownnz: np.ndarray          """non-zeros in each row                            int* (nbody x 1)"""
+  B_rowadr: np.ndarray          """address of each row in B_colind                  int* (nbody x 1)"""
+  B_colind: np.ndarray          """column indices of non-zeros                      int* (nB x 1)"""
 
-  // computed by mj_resetData
-  int*    D_rownnz;          // non-zeros in each row                            (nv x 1)
-  int*    D_rowadr;          // address of each row in D_colind                  (nv x 1)
-  int*    D_colind;          // column indices of non-zeros                      (nD x 1)
-  int*    B_rownnz;          // non-zeros in each row                            (nbody x 1)
-  int*    B_rowadr;          // address of each row in B_colind                  (nbody x 1)
-  int*    B_colind;          // column indices of non-zeros                      (nB x 1)
+  # computed by mj_implicit/mj_derivative
+  qDeriv: np.ndarray            """d (passive + actuator - bias) / d qvel           float* (nD x 1)"""
 
-  // computed by mj_implicit/mj_derivative
-  mjtNum* qDeriv;            // d (passive + actuator - bias) / d qvel           (nD x 1)
+  # computed by mj_implicit/mju_factorLUSparse
+  qLU: np.ndarray               """sparse LU of (qM - dt*qDeriv)                    float* (nD x 1)"""
 
-  // computed by mj_implicit/mju_factorLUSparse
-  mjtNum* qLU;               // sparse LU of (qM - dt*qDeriv)                    (nD x 1)
+  # computed by mj_fwdActuation
+  actuator_force: np.ndarray    """actuator force in actuation space                float* (nu x 1)"""
+  qfrc_actuator: np.ndarray     """actuator force                                   float* (nv x 1)"""
 
-  //-------------------- POSITION, VELOCITY, CONTROL/ACCELERATION dependent
+  # computed by mj_fwdAcceleration
+  qfrc_smooth: np.ndarray       """net unconstrained force                          float* (nv x 1)"""
+  qacc_smooth: np.ndarray       """unconstrained acceleration                       float* (nv x 1)"""
 
-  // computed by mj_fwdActuation
-  mjtNum* actuator_force;    // actuator force in actuation space                (nu x 1)
-  mjtNum* qfrc_actuator;     // actuator force                                   (nv x 1)
+  # computed by mj_fwdConstraint/mj_inverse
+  qfrc_constraint: np.ndarray   """constraint force                                 float* (nv x 1)"""
 
-  // computed by mj_fwdAcceleration
-  mjtNum* qfrc_smooth;       // net unconstrained force                          (nv x 1)
-  mjtNum* qacc_smooth;       // unconstrained acceleration                       (nv x 1)
+  # computed by mj_inverse
+  qfrc_inverse: np.ndarray      """net external force; should equal: qfrc_applied + J'*xfrc_applied + qfrc_actuator         float* (nv x 1)"""
 
-  // computed by mj_fwdConstraint/mj_inverse
-  mjtNum* qfrc_constraint;   // constraint force                                 (nv x 1)
+  # computed by mj_sensorAcc/mj_rnePostConstraint if needed: np.ndarray rotation:translation format
+  cacc: np.ndarray              """com-based acceleration                           float* (nbody x 6)"""
+  cfrc_int: np.ndarray          """com-based interaction force with parent          float* (nbody x 6)"""
+  cfrc_ext: np.ndarray          """com-based external force on body                 float* (nbody x 6)"""
 
-  // computed by mj_inverse
-  mjtNum* qfrc_inverse;      // net external force; should equal:                (nv x 1)
-                             // qfrc_applied + J'*xfrc_applied + qfrc_actuator
+  # computed by mj_collision
+  contact: List[MjContact]        """list of all detected contacts                    (ncon x 1)"""
 
-  // computed by mj_sensorAcc/mj_rnePostConstraint if needed; rotation:translation format
-  mjtNum* cacc;              // com-based acceleration                           (nbody x 6)
-  mjtNum* cfrc_int;          // com-based interaction force with parent          (nbody x 6)
-  mjtNum* cfrc_ext;          // com-based external force on body                 (nbody x 6)
+  # computed by mj_makeConstraint
+  efc_type: np.ndarray          """constraint type (mjtConstraint)                  int* (nefc x 1)"""
+  efc_id: np.ndarray            """id of object of specified type                   int* (nefc x 1)"""
+  efc_J_rownnz: np.ndarray      """number of non-zeros in constraint Jacobian row   int* (nefc x 1)"""
+  efc_J_rowadr: np.ndarray      """row start address in colind array                int* (nefc x 1)"""
+  efc_J_rowsuper: np.ndarray    """number of subsequent rows in supernode           int* (nefc x 1)"""
+  efc_J_colind: np.ndarray      """column indices in constraint Jacobian            int* (nnzJ x 1)"""
+  efc_JT_rownnz: np.ndarray     """number of non-zeros in constraint Jacobian row T int* (nv x 1)"""
+  efc_JT_rowadr: np.ndarray     """row start address in colind array              T int* (nv x 1)"""
+  efc_JT_rowsuper: np.ndarray   """number of subsequent rows in supernode         T int* (nv x 1)"""
+  efc_JT_colind: np.ndarray     """column indices in constraint Jacobian          T int* (nnzJ x 1)"""
+  efc_J: np.ndarray             """constraint Jacobian                              float* (nnzJ x 1)"""
+  efc_JT: np.ndarray            """constraint Jacobian transposed                   float* (nnzJ x 1)"""
+  efc_pos: np.ndarray           """constraint position (equality, contact)          float* (nefc x 1)"""
+  efc_margin: np.ndarray        """inclusion margin (contact)                       float* (nefc x 1)"""
+  efc_frictionloss: np.ndarray  """frictionloss (friction)                          float* (nefc x 1)"""
+  efc_diagApprox: np.ndarray    """approximation to diagonal of A                   float* (nefc x 1)"""
+  efc_KBIP: np.ndarray          """stiffness, damping, impedance, imp'              float* (nefc x 4)"""
+  efc_D: np.ndarray             """constraint mass                                  float* (nefc x 1)"""
+  efc_R: np.ndarray             """inverse constraint mass                          float* (nefc x 1)"""
+  tendon_efcadr: np.ndarray     """first efc address involving tendon; -1: none     int* (ntendon x 1)"""
 
-  //-------------------- arena-allocated: POSITION dependent
+  # computed by mj_island
+  dof_island: np.ndarray        """island id of this dof; -1: none                  int* (nv x 1)"""
+  island_dofnum: np.ndarray     """number of dofs in island                         int* (nisland x 1)"""
+  island_dofadr: np.ndarray     """start address in island_dofind                   int* (nisland x 1)"""
+  island_dofind: np.ndarray     """island dof indices; -1: none                     int* (nv x 1)"""
+  dof_islandind: np.ndarray     """dof island indices; -1: none                     int* (nv x 1)"""
+  efc_island: np.ndarray        """island id of this constraint                     int* (nefc x 1)"""
+  island_efcnum: np.ndarray     """number of constraints in island                  int* (nisland x 1)"""
+  island_efcadr: np.ndarray     """start address in island_efcind                   int* (nisland x 1)"""
+  island_efcind: np.ndarray     """island constraint indices                        int* (nefc x 1)"""
 
-  // computed by mj_collision
-  mjContact* contact;        // list of all detected contacts                    (ncon x 1)
+  # computed by mj_projectConstraint (dual solver)"""
+  efc_AR_rownnz: np.ndarray     """number of non-zeros in AR                        int* (nefc x 1)"""
+  efc_AR_rowadr: np.ndarray     """row start address in colind array                int* (nefc x 1)"""
+  efc_AR_colind: np.ndarray     """column indices in sparse AR                      int* (nefc x nefc)"""
+  efc_AR: np.ndarray            """J*inv(M)*J' + R                                  float* (nefc x nefc)"""
 
-  // computed by mj_makeConstraint
-  int*    efc_type;          // constraint type (mjtConstraint)                  (nefc x 1)
-  int*    efc_id;            // id of object of specified type                   (nefc x 1)
-  int*    efc_J_rownnz;      // number of non-zeros in constraint Jacobian row   (nefc x 1)
-  int*    efc_J_rowadr;      // row start address in colind array                (nefc x 1)
-  int*    efc_J_rowsuper;    // number of subsequent rows in supernode           (nefc x 1)
-  int*    efc_J_colind;      // column indices in constraint Jacobian            (nnzJ x 1)
-  int*    efc_JT_rownnz;     // number of non-zeros in constraint Jacobian row T (nv x 1)
-  int*    efc_JT_rowadr;     // row start address in colind array              T (nv x 1)
-  int*    efc_JT_rowsuper;   // number of subsequent rows in supernode         T (nv x 1)
-  int*    efc_JT_colind;     // column indices in constraint Jacobian          T (nnzJ x 1)
-  mjtNum* efc_J;             // constraint Jacobian                              (nnzJ x 1)
-  mjtNum* efc_JT;            // constraint Jacobian transposed                   (nnzJ x 1)
-  mjtNum* efc_pos;           // constraint position (equality, contact)          (nefc x 1)
-  mjtNum* efc_margin;        // inclusion margin (contact)                       (nefc x 1)
-  mjtNum* efc_frictionloss;  // frictionloss (friction)                          (nefc x 1)
-  mjtNum* efc_diagApprox;    // approximation to diagonal of A                   (nefc x 1)
-  mjtNum* efc_KBIP;          // stiffness, damping, impedance, imp'              (nefc x 4)
-  mjtNum* efc_D;             // constraint mass                                  (nefc x 1)
-  mjtNum* efc_R;             // inverse constraint mass                          (nefc x 1)
-  int*    tendon_efcadr;     // first efc address involving tendon; -1: none     (ntendon x 1)
+  # computed by mj_fwdVelocity/mj_referenceConstraint
+  efc_vel: np.ndarray           """velocity in constraint space: J*qvel             float* (nefc x 1)"""
+  efc_aref: np.ndarray          """reference pseudo-acceleration                    float* (nefc x 1)"""
 
-  // computed by mj_island
-  int*    dof_island;        // island id of this dof; -1: none                  (nv x 1)
-  int*    island_dofnum;     // number of dofs in island                         (nisland x 1)
-  int*    island_dofadr;     // start address in island_dofind                   (nisland x 1)
-  int*    island_dofind;     // island dof indices; -1: none                     (nv x 1)
-  int*    dof_islandind;     // dof island indices; -1: none                     (nv x 1)
-  int*    efc_island;        // island id of this constraint                     (nefc x 1)
-  int*    island_efcnum;     // number of constraints in island                  (nisland x 1)
-  int*    island_efcadr;     // start address in island_efcind                   (nisland x 1)
-  int*    island_efcind;     // island constraint indices                        (nefc x 1)
+  # computed by mj_fwdConstraint/mj_inverse
+  efc_b: np.ndarray            """linear cost term: J*qacc_smooth - aref            float* (nefc x 1)"""
+  efc_force: np.ndarray        """constraint force in constraint space              float* (nefc x 1)"""
+  efc_state: np.ndarray        """constraint state (mjtConstraintState)             int* (nefc x 1)"""
 
-  // computed by mj_projectConstraint (dual solver)
-  int*    efc_AR_rownnz;     // number of non-zeros in AR                        (nefc x 1)
-  int*    efc_AR_rowadr;     // row start address in colind array                (nefc x 1)
-  int*    efc_AR_colind;     // column indices in sparse AR                      (nefc x nefc)
-  mjtNum* efc_AR;            // J*inv(M)*J' + R                                  (nefc x nefc)
-
-  //-------------------- arena-allocated: POSITION, VELOCITY dependent
-
-  // computed by mj_fwdVelocity/mj_referenceConstraint
-  mjtNum* efc_vel;           // velocity in constraint space: J*qvel             (nefc x 1)
-  mjtNum* efc_aref;          // reference pseudo-acceleration                    (nefc x 1)
-
-  //-------------------- arena-allocated: POSITION, VELOCITY, CONTROL/ACCELERATION dependent
-
-  // computed by mj_fwdConstraint/mj_inverse
-  mjtNum* efc_b;            // linear cost term: J*qacc_smooth - aref            (nefc x 1)
-  mjtNum* efc_force;        // constraint force in constraint space              (nefc x 1)
-  int*    efc_state;        // constraint state (mjtConstraintState)             (nefc x 1)
-
-  // ThreadPool for multithreaded operations
-  uintptr_t threadpool;
-};
-typedef struct mjData_ mjData;
-"""
+  # ThreadPool for multithreaded operations
+  threadpool: Any  """thread pool handle"""
